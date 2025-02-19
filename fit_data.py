@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import argparse
 import os
 import time
@@ -58,7 +59,7 @@ def fit_mesh(mesh_src, mesh_tgt, args):
         loss_vis = loss.cpu().item()
 
         print(
-            "[%4d/%4d]; ttime: %.0f (%.2f); loss: %.3f"
+            "[%4d/%4d]; time: %.0f (%.2f); loss: %.3f"
             % (step, args.max_iter, total_time, iter_time, loss_vis)
         )
 
@@ -86,7 +87,7 @@ def fit_pointcloud(pointclouds_src, pointclouds_tgt, args):
         loss_vis = loss.cpu().item()
 
         print(
-            "[%4d/%4d]; ttime: %.0f (%.2f); loss: %.3f"
+            "[%4d/%4d]; time: %.0f (%.2f); loss: %.3f"
             % (step, args.max_iter, total_time, iter_time, loss_vis)
         )
 
@@ -112,7 +113,7 @@ def fit_voxel(voxels_src, voxels_tgt, args):
         loss_vis = loss.cpu().item()
 
         print(
-            "[%4d/%4d]; ttime: %.0f (%.2f); loss: %.3f"
+            "[%4d/%4d]; time: %.0f (%.2f); loss: %.3f"
             % (step, args.max_iter, total_time, iter_time, loss_vis)
         )
 

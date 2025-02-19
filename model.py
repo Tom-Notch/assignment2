@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import time
 
 import pytorch3d
@@ -6,6 +7,40 @@ import torch.nn as nn
 from pytorch3d.utils import ico_sphere
 from torchvision import models as torchvision_models
 from torchvision import transforms
+
+
+class VoxelDecoder(nn.Module):
+    def __init__(self):
+        super(VoxelDecoder, self).__init__()
+        # Project latent vector to a small 3D volume
+        self.fc = nn.Linear(512, 256 * 4 * 4 * 4)
+        # Upsample with 3D transposed convolutions:
+        #   4 -> 8 -> 16 -> 32 (in each spatial dimension)
+        self.deconv = nn.Sequential(
+            # Input: (b, 256, 4, 4, 4)
+            nn.ConvTranspose3d(
+                256, 128, kernel_size=4, stride=2, padding=1
+            ),  # -> (b, 128, 8, 8, 8)
+            nn.BatchNorm3d(128),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose3d(
+                128, 64, kernel_size=4, stride=2, padding=1
+            ),  # -> (b, 64, 16, 16, 16)
+            nn.BatchNorm3d(64),
+            nn.ReLU(inplace=True),
+            nn.ConvTranspose3d(
+                64, 1, kernel_size=4, stride=2, padding=1
+            ),  # -> (b, 1, 32, 32, 32)
+            nn.Sigmoid(),
+        )
+
+    def forward(self, x):
+        # x: (b, 512)
+        x = self.fc(x)  # -> (b, 256*4*4*4)
+        x = x.view(-1, 256, 4, 4, 4)  # Reshape to 3D volume
+        x = self.deconv(x)  # -> (b, 1, 32, 32, 32)
+        x = x.squeeze(1)  # Remove the channel dimension: (b, 32, 32, 32)
+        return x
 
 
 class SingleViewto3D(nn.Module):
@@ -23,9 +58,7 @@ class SingleViewto3D(nn.Module):
         if args.type == "vox":
             # Input: b x 512
             # Output: b x 32 x 32 x 32
-            pass
-            # TODO:
-            # self.decoder =
+            self.decoder = VoxelDecoder()
         elif args.type == "point":
             # Input: b x 512
             # Output: b x args.n_points x 3
@@ -62,8 +95,7 @@ class SingleViewto3D(nn.Module):
 
         # call decoder
         if args.type == "vox":
-            # TODO:
-            # voxels_pred =
+            voxels_pred = self.decoder(encoded_feat)
             return voxels_pred
 
         elif args.type == "point":
