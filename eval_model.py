@@ -11,6 +11,12 @@ import torch
 from pytorch3d.datasets.r2n2.utils import collate_batched_R2N2
 from pytorch3d.ops import knn_points
 from pytorch3d.ops import sample_points_from_meshes
+from pytorch3d.renderer import FoVPerspectiveCameras
+from pytorch3d.renderer import MeshRasterizer
+from pytorch3d.renderer import MeshRenderer
+from pytorch3d.renderer import PointLights
+from pytorch3d.renderer import RasterizationSettings
+from pytorch3d.renderer import SoftPhongShader
 from pytorch3d.transforms import axis_angle_to_matrix
 from pytorch3d.transforms import Rotate
 
@@ -174,7 +180,7 @@ def evaluate_model(args):
     if args.load_checkpoint:
         checkpoint = torch.load(f"checkpoint_{args.type}.pth")
         model.load_state_dict(checkpoint["model_state_dict"])
-        print(f"Succesfully loaded iter {start_iter}")
+        print(f"Successfully loaded iter {start_iter}")
 
     print("Starting evaluating !")
     max_iter = len(eval_loader)
@@ -194,10 +200,110 @@ def evaluate_model(args):
         metrics = evaluate(predictions, mesh_gt, thresholds, args)
 
         # TODO:
-        # if (step % args.vis_freq) == 0:
-        #     # visualization block
-        #     #  rend =
-        #     plt.imsave(f'vis/{step}_{args.type}.png', rend)
+        if (step % args.vis_freq) == 0:
+            # --- Setup PyTorch3D Renderer ---
+            device = args.device
+            cameras = FoVPerspectiveCameras(device=device)
+            lights = PointLights(device=device, location=[[0.0, 0.0, -3.0]])
+            raster_settings = RasterizationSettings(
+                image_size=256,
+                blur_radius=0.0,
+                faces_per_pixel=1,
+            )
+            renderer = MeshRenderer(
+                rasterizer=MeshRasterizer(
+                    cameras=cameras, raster_settings=raster_settings
+                ),
+                shader=SoftPhongShader(device=device, cameras=cameras, lights=lights),
+            )
+
+            # --- Input RGB ---
+            input_rgb = images_gt[0].detach().cpu().numpy()
+
+            if args.type == "vox":
+                # Convert voxel grid to mesh using marching cubes.
+                voxels_np = predictions[0].detach().cpu().numpy()
+                vertices_pred, faces_pred = mcubes.marching_cubes(
+                    voxels_np, isovalue=0.5
+                )
+                vertices_pred = torch.tensor(
+                    vertices_pred, dtype=torch.float32, device=device
+                )
+                faces_pred = torch.tensor(faces_pred.astype(np.int64), device=device)
+                mesh_pred = pytorch3d.structures.Meshes([vertices_pred], [faces_pred])
+                rend_pred = renderer(mesh_pred)[0, ..., :3].detach().cpu().numpy()
+
+                # Ground truth mesh: take first mesh in batch.
+                mesh_gt0 = mesh_gt[0]
+                rend_gt = renderer(mesh_gt0)[0, ..., :3].detach().cpu().numpy()
+
+                fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+                axes[0].imshow(input_rgb)
+                axes[0].set_title("Input RGB")
+                axes[0].axis("off")
+                axes[1].imshow(rend_pred)
+                axes[1].set_title("Predicted Mesh (Vox)")
+                axes[1].axis("off")
+                axes[2].imshow(rend_gt)
+                axes[2].set_title("Ground Truth Mesh")
+                axes[2].axis("off")
+                plt.tight_layout()
+                plt.savefig(f"vis/{step}_{args.type}_renderer.png")
+                plt.close(fig)
+
+            elif args.type == "point":
+                # For point clouds, predictions is (B, n_points, 3)
+                pred_points = predictions[0].detach().cpu().numpy()
+                # Render the ground truth mesh.
+                mesh_gt0 = mesh_gt[0]
+                rend_gt = renderer(mesh_gt0)[0, ..., :3].detach().cpu().numpy()
+
+                fig = plt.figure(figsize=(18, 6))
+                ax1 = fig.add_subplot(1, 3, 1)
+                ax1.imshow(input_rgb)
+                ax1.set_title("Input RGB")
+                ax1.axis("off")
+                ax2 = fig.add_subplot(1, 3, 2, projection="3d")
+                ax2.scatter(
+                    pred_points[:, 0],
+                    pred_points[:, 1],
+                    pred_points[:, 2],
+                    s=1,
+                    c="blue",
+                    depthshade=True,
+                )
+                ax2.set_title("Predicted Point Cloud")
+                ax2.view_init(elev=30, azim=45)
+                ax2.set_xlabel("X")
+                ax2.set_ylabel("Y")
+                ax2.set_zlabel("Z")
+                ax3 = fig.add_subplot(1, 3, 3)
+                ax3.imshow(rend_gt)
+                ax3.set_title("Ground Truth Mesh (Rendered)")
+                ax3.axis("off")
+                plt.tight_layout()
+                plt.savefig(f"vis/{step}_{args.type}_renderer.png")
+                plt.close(fig)
+
+            elif args.type == "mesh":
+                # For mesh, predictions is a Meshes object.
+                rend_pred = renderer(predictions)[0, ..., :3].detach().cpu().numpy()
+                mesh_gt0 = mesh_gt[0]
+                rend_gt = renderer(mesh_gt0)[0, ..., :3].detach().cpu().numpy()
+
+                fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+                axes[0].imshow(input_rgb)
+                axes[0].set_title("Input RGB")
+                axes[0].axis("off")
+                axes[1].imshow(rend_pred)
+                axes[1].set_title("Predicted Mesh (Rendered)")
+                axes[1].axis("off")
+                axes[2].imshow(rend_gt)
+                axes[2].set_title("Ground Truth Mesh (Rendered)")
+                axes[2].axis("off")
+                plt.tight_layout()
+                plt.savefig(f"vis/{step}_{args.type}_renderer.png")
+                plt.close(fig)
 
         total_time = time.time() - start_time
         iter_time = time.time() - iter_start_time
@@ -211,7 +317,7 @@ def evaluate_model(args):
         avg_f1_score.append(torch.tensor([metrics["F1@%f" % t] for t in thresholds]))
 
         print(
-            "[%4d/%4d]; ttime: %.0f (%.2f, %.2f); F1@0.05: %.3f; Avg F1@0.05: %.3f"
+            "[%4d/%4d]; time: %.0f (%.2f, %.2f); F1@0.05: %.3f; Avg F1@0.05: %.3f"
             % (
                 step,
                 max_iter,

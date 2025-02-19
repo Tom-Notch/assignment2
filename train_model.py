@@ -102,7 +102,7 @@ def train_model(args):
         model.load_state_dict(checkpoint["model_state_dict"])
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         start_iter = checkpoint["step"]
-        print(f"Succesfully loaded iter {start_iter}")
+        print(f"Successfully loaded iter {start_iter}")
 
     print("Starting training !")
     for step in range(start_iter, args.max_iter):
@@ -143,7 +143,7 @@ def train_model(args):
             )
 
         print(
-            "[%4d/%4d]; ttime: %.0f (%.2f, %.2f); loss: %.3f"
+            "[%4d/%4d]; time: %.0f (%.2f, %.2f); loss: %.3f"
             % (step, args.max_iter, total_time, read_time, iter_time, loss_vis)
         )
 

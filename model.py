@@ -39,7 +39,54 @@ class VoxelDecoder(nn.Module):
         x = self.fc(x)  # -> (b, 256*4*4*4)
         x = x.view(-1, 256, 4, 4, 4)  # Reshape to 3D volume
         x = self.deconv(x)  # -> (b, 1, 32, 32, 32)
-        x = x.squeeze(1)  # Remove the channel dimension: (b, 32, 32, 32)
+        return x
+
+
+class PointCloudDecoder(nn.Module):
+    def __init__(self, n_points, latent_dim=512):
+        """
+        Args:
+            n_points (int): Number of points in the predicted point cloud.
+            latent_dim (int): Dimensionality of the input latent vector.
+        """
+        super(PointCloudDecoder, self).__init__()
+        self.n_points = n_points
+
+        self.fc = nn.Sequential(
+            nn.Linear(latent_dim, 1024),
+            nn.ReLU(inplace=True),
+            nn.Linear(1024, 2048),
+            nn.ReLU(inplace=True),
+            nn.Linear(2048, n_points * 3),
+        )
+
+    def forward(self, x):
+        # x: (B, latent_dim)
+        x = self.fc(x)  # (B, n_points * 3)
+        x = x.view(-1, self.n_points, 3)  # reshape to (B, n_points, 3)
+        return x
+
+
+class MeshDecoder(nn.Module):
+    def __init__(self, n_verts, latent_dim=512):
+        """
+        Args:
+            n_verts (int): Number of vertices in the template mesh.
+            latent_dim (int): Dimensionality of the input latent vector.
+        """
+        super(MeshDecoder, self).__init__()
+        self.n_verts = n_verts
+        self.fc = nn.Sequential(
+            nn.Linear(latent_dim, 1024),
+            nn.ReLU(inplace=True),
+            nn.Linear(1024, n_verts * 3),
+        )
+
+    def forward(self, x):
+        # x: (B, latent_dim)
+        batch_size = x.shape[0]
+        x = self.fc(x)  # (B, n_verts * 3)
+        x = x.view(batch_size, self.n_verts, 3)  # reshape to (B, n_verts, 3)
         return x
 
 
@@ -63,19 +110,18 @@ class SingleViewto3D(nn.Module):
             # Input: b x 512
             # Output: b x args.n_points x 3
             self.n_point = args.n_points
-            # TODO:
-            # self.decoder =
+            self.decoder = PointCloudDecoder(n_points=args.n_points, latent_dim=512)
         elif args.type == "mesh":
             # Input: b x 512
             # Output: b x mesh_pred.verts_packed().shape[0] x 3
             # try different mesh initializations
-            mesh_pred = ico_sphere(4, self.device)
+            template_mesh = ico_sphere(4, self.device)
+            self.n_verts = template_mesh.verts_packed().shape[0]
             self.mesh_pred = pytorch3d.structures.Meshes(
-                mesh_pred.verts_list() * args.batch_size,
-                mesh_pred.faces_list() * args.batch_size,
+                template_mesh.verts_list() * args.batch_size,
+                template_mesh.faces_list() * args.batch_size,
             )
-            # TODO:
-            # self.decoder =
+            self.decoder = MeshDecoder(n_verts=self.n_verts, latent_dim=512)
 
     def forward(self, images, args):
         results = dict()
@@ -99,13 +145,11 @@ class SingleViewto3D(nn.Module):
             return voxels_pred
 
         elif args.type == "point":
-            # TODO:
-            # pointclouds_pred =
+            pointclouds_pred = self.decoder(encoded_feat)
             return pointclouds_pred
 
         elif args.type == "mesh":
-            # TODO:
-            # deform_vertices_pred =
+            deform_vertices_pred = self.decoder(encoded_feat)
             mesh_pred = self.mesh_pred.offset_verts(
                 deform_vertices_pred.reshape([-1, 3])
             )
