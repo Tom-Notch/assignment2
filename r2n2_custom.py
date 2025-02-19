@@ -3,30 +3,29 @@
 #
 # This source code is licensed under the BSD-style license found in the
 # LICENSE file in the root directory of this source tree.
-
 import json
+import random
 import warnings
 from os import path
 from pathlib import Path
-from typing import Dict, List, Optional
-import random
-
+from typing import Dict
+from typing import List
+from typing import Optional
 
 import numpy as np
 import torch
 from PIL import Image
 from pytorch3d.common.datatypes import Device
+from pytorch3d.datasets.r2n2 import utils
+from pytorch3d.datasets.r2n2.utils import align_bbox
+from pytorch3d.datasets.r2n2.utils import BlenderCamera
+from pytorch3d.datasets.r2n2.utils import compute_extrinsic_matrix
+from pytorch3d.datasets.r2n2.utils import read_binvox_coords
+from pytorch3d.datasets.r2n2.utils import voxelize
 from pytorch3d.datasets.shapenet_base import ShapeNetBase
 from pytorch3d.renderer import HardPhongShader
 from tabulate import tabulate
-from pytorch3d.datasets.r2n2 import utils
-from pytorch3d.datasets.r2n2.utils import (
-    BlenderCamera,
-    align_bbox,
-    compute_extrinsic_matrix,
-    read_binvox_coords,
-    voxelize,
-)
+
 import utils_vox
 
 
@@ -82,7 +81,7 @@ class R2N2(ShapeNetBase):  # pragma: no cover
                 selected and loaded.
             return_voxels(bool): Indicator of whether or not to return voxels as a tensor
                 of shape (D, D, D) where D is the number of voxels along each dimension.
-            return_feats(bool): Indicator of whether image features from a pretrained resnet18 
+            return_feats(bool): Indicator of whether image features from a pretrained resnet18
                 are also returned in the dataloader or not
             views_rel_path: path to rendered views within the r2n2_dir. If not specified,
                 the renderings are assumed to be at os.path.join(rn2n_dir, "ShapeNetRendering").
@@ -283,7 +282,9 @@ class R2N2(ShapeNetBase):  # pragma: no cover
                 model["model_id"],
                 "rendering",
             )
-            all_feats = torch.from_numpy(np.load(path.join(rendering_path, "feats.npy")))
+            all_feats = torch.from_numpy(
+                np.load(path.join(rendering_path, "feats.npy"))
+            )
             # Read metadata file to obtain params for calibration matrices.
             with open(path.join(rendering_path, "rendering_metadata.txt"), "r") as f:
                 metadata_lines = f.readlines()
@@ -346,7 +347,9 @@ class R2N2(ShapeNetBase):  # pragma: no cover
             # Align voxels to the same coordinate system as mesh verts.
             voxel_coords = align_bbox(voxel_coords, model["verts"])
             model["voxel_coords"] = voxel_coords
-            voxels = utils_vox.voxelize_xyz(voxel_coords.unsqueeze(0),32,32,32).squeeze(0)
+            voxels = utils_vox.voxelize_xyz(
+                voxel_coords.unsqueeze(0), 32, 32, 32
+            ).squeeze(0)
             # for RT in voxel_RTs:
             #     # Compute projection matrix.
             #     P = BLENDER_INTRINSIC.mm(RT)
@@ -354,17 +357,16 @@ class R2N2(ShapeNetBase):  # pragma: no cover
             #     voxels = voxelize(voxel_coords, P, VOXEL_SIZE)
             #     voxels_list.append(voxels)
             model["voxels"] = voxels
-        num_views = model['images'].shape[0]
-        rand_view = random.randint(0,num_views-1)
+        num_views = model["images"].shape[0]
+        rand_view = random.randint(0, num_views - 1)
 
-        model['images'] = model['images'][rand_view]
-        model['R'] = model['R'][rand_view]
-        model['T'] = model['T'][rand_view]
-        model['K'] = model['K'][rand_view]
+        model["images"] = model["images"][rand_view]
+        model["R"] = model["R"][rand_view]
+        model["T"] = model["T"][rand_view]
+        model["K"] = model["K"][rand_view]
         if self.return_feats:
             model["feats"] = model["feats"][rand_view]
 
-        
         return model
 
     def _compute_camera_calibration(self, RT):
@@ -405,7 +407,7 @@ class R2N2(ShapeNetBase):  # pragma: no cover
         view_idxs: Optional[List[int]] = None,
         shader_type=HardPhongShader,
         device: Device = "cpu",
-        **kwargs
+        **kwargs,
     ) -> torch.Tensor:
         """
         Render models with BlenderCamera by default to achieve the same orientations as the

@@ -1,12 +1,13 @@
 import argparse
 import time
 
-import dataset_location
-import losses
 import torch
-from model import SingleViewto3D
 from pytorch3d.datasets.r2n2.utils import collate_batched_R2N2
 from pytorch3d.ops import sample_points_from_meshes
+
+import dataset_location
+import losses
+from model import SingleViewto3D
 from r2n2_custom import R2N2
 
 
@@ -26,8 +27,8 @@ def get_args_parser():
     parser.add_argument("--w_smooth", default=0.1, type=float)
     parser.add_argument("--save_freq", default=2000, type=int)
     parser.add_argument("--load_checkpoint", action="store_true")
-    parser.add_argument('--device', default='cuda', type=str) 
-    parser.add_argument('--load_feat', action='store_true') 
+    parser.add_argument("--device", default="cuda", type=str)
+    parser.add_argument("--load_feat", action="store_true")
     return parser
 
 
