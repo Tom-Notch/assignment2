@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import time
+from collections import OrderedDict
 
 import pytorch3d
 import torch
@@ -9,35 +10,54 @@ from torchvision import models as torchvision_models
 from torchvision import transforms
 
 
+class VoxelBlock(nn.Sequential):
+    def __init__(self, in_channels: int, out_channels: int):
+        super().__init__(
+            OrderedDict(
+                [
+                    (
+                        "conv",
+                        nn.ConvTranspose3d(
+                            in_channels=in_channels,
+                            out_channels=out_channels,
+                            kernel_size=4,
+                            stride=2,
+                            padding=1,
+                            bias=False,
+                        ),
+                    ),
+                    ("batchnorm", nn.BatchNorm3d(out_channels)),
+                    ("activation", nn.ReLU(inplace=True)),
+                ]
+            )
+        )
+
+
 class VoxelDecoder(nn.Module):
     def __init__(self):
-        super(VoxelDecoder, self).__init__()
+        super().__init__()
         # Project latent vector to a small 3D volume
-        self.fc = nn.Linear(512, 256 * 4 * 4 * 4)
-        # Upsample with 3D transposed convolutions:
-        #   4 -> 8 -> 16 -> 32 (in each spatial dimension)
+        self.fc = nn.Linear(512, 256 * 2 * 2 * 2)
+        # Upsample with 3D transposed convolutions
         self.deconv = nn.Sequential(
-            # Input: (b, 256, 4, 4, 4)
-            nn.ConvTranspose3d(
-                256, 128, kernel_size=4, stride=2, padding=1
-            ),  # -> (b, 128, 8, 8, 8)
-            nn.BatchNorm3d(128),
-            nn.ReLU(inplace=True),
-            nn.ConvTranspose3d(
-                128, 64, kernel_size=4, stride=2, padding=1
-            ),  # -> (b, 64, 16, 16, 16)
-            nn.BatchNorm3d(64),
-            nn.ReLU(inplace=True),
-            nn.ConvTranspose3d(
-                64, 1, kernel_size=4, stride=2, padding=1
-            ),  # -> (b, 1, 32, 32, 32)
-            nn.Sigmoid(),
+            OrderedDict(
+                [
+                    ("vox1", VoxelBlock(256, 128)),
+                    ("vox2", VoxelBlock(128, 64)),
+                    ("vox3", VoxelBlock(64, 32)),
+                    ("vox4", VoxelBlock(32, 1)),
+                    (
+                        "binarize",
+                        nn.Sigmoid(),
+                    ),
+                ]
+            )
         )
 
     def forward(self, x):
         # x: (b, 512)
-        x = self.fc(x)  # -> (b, 256*4*4*4)
-        x = x.view(-1, 256, 4, 4, 4)  # Reshape to 3D volume
+        x = self.fc(x)  # -> (b, 256*2*2*2)
+        x = x.view(-1, 256, 2, 2, 2)  # Reshape to 3D volume
         x = self.deconv(x)  # -> (b, 1, 32, 32, 32)
         return x
 
