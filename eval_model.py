@@ -69,7 +69,7 @@ def save_plot(thresholds, avg_f1_score, args):
     ax.set_xlabel("Threshold")
     ax.set_ylabel("F1-score")
     ax.set_title(f"Evaluation {args.type}")
-    plt.savefig(f"eval_{args.type}", bbox_inches="tight")
+    plt.savefig(f"vis/eval_{args.type}", bbox_inches="tight")
 
 
 def compute_sampling_metrics(pred_points, gt_points, thresholds, eps=1e-8):
