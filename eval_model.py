@@ -13,6 +13,7 @@ from pytorch3d.ops import knn_points
 from pytorch3d.ops import sample_points_from_meshes
 from pytorch3d.renderer import AlphaCompositor
 from pytorch3d.renderer import FoVPerspectiveCameras
+from pytorch3d.renderer import look_at_view_transform
 from pytorch3d.renderer import MeshRasterizer
 from pytorch3d.renderer import MeshRenderer
 from pytorch3d.renderer import PointLights
@@ -22,7 +23,6 @@ from pytorch3d.renderer import PointsRenderer
 from pytorch3d.renderer import RasterizationSettings
 from pytorch3d.renderer import SoftPhongShader
 from pytorch3d.renderer import TexturesVertex
-from pytorch3d.structures import Pointclouds
 from pytorch3d.transforms import axis_angle_to_matrix
 from pytorch3d.transforms import Rotate
 
@@ -149,6 +149,38 @@ def evaluate(predictions, mesh_gt, thresholds, args):
     return metrics
 
 
+def get_points_renderer(
+    image_size=512, device=None, radius=0.01, background_color=(1, 1, 1)
+):
+    """
+    Returns a Pytorch3D renderer for point clouds.
+
+    Args:
+        image_size (int): The rendered image size.
+        device (torch.device): The torch device to use (CPU or GPU). If not specified,
+            will automatically use GPU if available, otherwise CPU.
+        radius (float): The radius of the rendered point in NDC.
+        background_color (tuple): The background color of the rendered image.
+
+    Returns:
+        PointsRenderer.
+    """
+    if device is None:
+        if torch.cuda.is_available():
+            device = torch.device("cuda:0")
+        else:
+            device = torch.device("cpu")
+    raster_settings = PointsRasterizationSettings(
+        image_size=image_size,
+        radius=radius,
+    )
+    renderer = PointsRenderer(
+        rasterizer=PointsRasterizer(raster_settings=raster_settings),
+        compositor=AlphaCompositor(background_color=background_color),
+    )
+    return renderer
+
+
 def evaluate_model(args):
     r2n2_dataset = R2N2(
         "test",
@@ -218,90 +250,129 @@ def evaluate_model(args):
         )
 
         if (step % args.vis_freq) == 0:
+            # --- Common Rendering ---
+            device = args.device
+
+            fig = plt.figure(figsize=(18, 6))
+
+            # Subplot 1: Input RGB
+            ax1 = fig.add_subplot(1, 3, 1)
+            input_rgb = images_gt[0].detach().cpu().numpy()
+            ax1.imshow(input_rgb)
+            ax1.axis("off")
+            # Place caption below: y=-0.08 positions the text below the axes.
+            ax1.text(
+                0.5,
+                -0.08,
+                "Input RGB",
+                transform=ax1.transAxes,
+                horizontalalignment="center",
+                verticalalignment="bottom",
+                fontsize=14,
+            )
+
+            # Subplot 2: Ground Truth Mesh rendering
+            # Compute camera parameters (common to both mesh and predict rendering)
+            R, T = look_at_view_transform(dist=1, elev=10, azim=0, device=device)
+            cameras = FoVPerspectiveCameras(R=R, T=T, device=device)
+            # Mesh renderer for ground truth:
+            lights = PointLights(device=device, location=[[0.0, 0.0, -3.0]])
+            raster_settings_mesh = RasterizationSettings(
+                image_size=256, blur_radius=0.0, faces_per_pixel=1
+            )
+            mesh_renderer = MeshRenderer(
+                rasterizer=MeshRasterizer(
+                    cameras=cameras, raster_settings=raster_settings_mesh
+                ),
+                shader=SoftPhongShader(device=device, cameras=cameras, lights=lights),
+            )
+            # Prepare ground truth mesh (colorize if needed)
+            mesh_gt0 = mesh_gt[0].to(device)
+            if mesh_gt0.textures is None:
+                verts = mesh_gt0.verts_packed()
+                colors = torch.full(
+                    (1, verts.shape[0], 3), 0.7, device=device
+                )  # light gray
+                mesh_gt0 = pytorch3d.structures.Meshes(
+                    verts=mesh_gt0.verts_list(),
+                    faces=mesh_gt0.faces_list(),
+                    textures=TexturesVertex(verts_features=colors),
+                )
+            rend_gt = mesh_renderer(mesh_gt0)[0, ..., :3].detach().cpu().numpy()
+            ax2 = fig.add_subplot(1, 3, 3)
+            ax2.imshow(rend_gt)
+            ax2.axis("off")
+            ax2.text(
+                0.5,
+                -0.08,
+                "Ground Truth Mesh",
+                transform=ax2.transAxes,
+                horizontalalignment="center",
+                verticalalignment="bottom",
+                fontsize=14,
+            )
+
+            # Subplot 3: Predicted reconstruction
+            ax3 = fig.add_subplot(1, 3, 2)
+
+            # --- Modality-Specific Rendering ---
             if args.type == "point":
-                device = args.device  # e.g., 'cuda' or 'cpu'
-
-                # Instantiate a points renderer for the predicted point cloud.
-                cameras = FoVPerspectiveCameras(device=device)
-                raster_settings = PointsRasterizationSettings(
-                    image_size=256,
-                    radius=0.005,  # Adjust radius to control point size
-                    points_per_pixel=10,
+                points_renderer = get_points_renderer(
+                    image_size=256, background_color=(1, 1, 1), device=device
                 )
-                points_renderer = PointsRenderer(
-                    rasterizer=PointsRasterizer(
-                        cameras=cameras, raster_settings=raster_settings
-                    ),
-                    compositor=AlphaCompositor(),
-                )
-
-                # Prepare the predicted point cloud.
-                # predictions: (B, n_points, 3); get the first sample and move to device.
-                pred_points = predictions[0].detach().to(device)  # shape: (n_points, 3)
-                # Create a uniform blue color for all points.
+                # predictions is assumed to be (B, n_points, 3); get first sample.
+                pred_points = predictions[0].detach().to(device)
+                # Create a uniform blue color for the predicted point cloud.
                 pred_colors = torch.zeros_like(pred_points)
-                pred_colors[:, 2] = 1.0  # Blue channel set to 1
-                # Create a Pointclouds object.
+                pred_colors[:, 2] = 1.0
+                from pytorch3d.structures import Pointclouds
+
                 pred_pc = Pointclouds(points=[pred_points], features=[pred_colors])
-                # Render the predicted point cloud.
                 rend_points = (
-                    points_renderer(pred_pc)[0, ..., :3].detach().cpu().numpy()
+                    points_renderer(pred_pc, cameras=cameras)[0, ..., :3]
+                    .detach()
+                    .cpu()
+                    .numpy()
                 )
 
-                # Instantiate a mesh renderer for the ground truth mesh.
-                lights = PointLights(device=device, location=[[0.0, 0.0, -3.0]])
-                raster_settings_mesh = RasterizationSettings(
-                    image_size=256,
-                    blur_radius=0.0,
-                    faces_per_pixel=1,
-                )
-                mesh_renderer = MeshRenderer(
-                    rasterizer=MeshRasterizer(
-                        cameras=cameras, raster_settings=raster_settings_mesh
-                    ),
-                    shader=SoftPhongShader(
-                        device=device, cameras=cameras, lights=lights
-                    ),
-                )
-
-                # Prepare the ground truth mesh.
-                mesh_gt0 = mesh_gt[0].to(device)
-                # If the ground truth mesh has no textures, colorize it uniformly.
-                if mesh_gt0.textures is None:
-                    verts = mesh_gt0.verts_packed()  # (N, 3)
-                    colors = torch.full(
-                        (1, verts.shape[0], 3), 0.7, device=device
-                    )  # light gray
-                    mesh_gt0 = pytorch3d.structures.Meshes(
-                        verts=mesh_gt0.verts_list(),
-                        faces=mesh_gt0.faces_list(),
-                        textures=TexturesVertex(verts_features=colors),
-                    )
-                rend_gt = mesh_renderer(mesh_gt0)[0, ..., :3].detach().cpu().numpy()
-
-                # Get the input RGB image.
-                input_rgb = images_gt[0].detach().cpu().numpy()
-
-                # Create a figure with three panels: input RGB, rendered predicted point cloud, and rendered ground truth mesh.
-                fig = plt.figure(figsize=(18, 6))
-                ax1 = fig.add_subplot(1, 3, 1)
-                ax1.imshow(input_rgb)
-                ax1.set_title("Input RGB")
-                ax1.axis("off")
-
-                ax2 = fig.add_subplot(1, 3, 2)
-                ax2.imshow(rend_points)
-                ax2.set_title("Predicted Point Cloud (Rendered)")
-                ax2.axis("off")
-
-                ax3 = fig.add_subplot(1, 3, 3)
-                ax3.imshow(rend_gt)
-                ax3.set_title("Ground Truth Mesh (Rendered)")
+                ax3.imshow(rend_points)
                 ax3.axis("off")
+                ax3.text(
+                    0.5,
+                    -0.08,
+                    "Predicted Point",
+                    transform=ax3.transAxes,
+                    horizontalalignment="center",
+                    verticalalignment="bottom",
+                    fontsize=14,
+                )
+            elif args.type == "mesh":
+                # predictions is assumed to be a Meshes object.
+                pred_mesh = predictions.to(device)
+                verts = pred_mesh.verts_packed()
+                colors = torch.full(
+                    (1, verts.shape[0], 3), 0.5, device=device
+                )  # uniform mid-gray
+                pred_mesh = pytorch3d.structures.Meshes(
+                    verts=pred_mesh.verts_list(),
+                    faces=pred_mesh.faces_list(),
+                    textures=TexturesVertex(verts_features=colors),
+                )
+                rend_pred = mesh_renderer(pred_mesh)[0, ..., :3].detach().cpu().numpy()
+                ax3.imshow(rend_pred)
+                ax3.axis("off")
+                ax3.text(
+                    0.5,
+                    -0.08,
+                    "Predicted Mesh",
+                    transform=ax3.transAxes,
+                    horizontalalignment="center",
+                    verticalalignment="bottom",
+                    fontsize=14,
+                )
 
-                plt.tight_layout()
-                plt.savefig(f"vis/{step}_{args.type}_renderer.png")
-                plt.close(fig)
+            plt.savefig(f"vis/{step}_{args.type}_renderer.png")
+            plt.close(fig)
 
         total_time = time.time() - start_time
         iter_time = time.time() - iter_start_time
