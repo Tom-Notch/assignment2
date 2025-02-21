@@ -238,7 +238,7 @@ def evaluate_model(args):
                 ax[2].text(
                     0.5,
                     -0.08,
-                    "Predicted Voxels (Mesh Extracted)",
+                    "Predicted Voxels",
                     transform=ax[2].transAxes,  # Use ax[2].transAxes here.
                     horizontalalignment="center",
                     verticalalignment="bottom",

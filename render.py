@@ -10,6 +10,7 @@
 from typing import Dict
 from typing import Tuple
 
+import matplotlib.cm as cm
 import numpy as np
 import torch
 from pytorch3d.renderer import AlphaCompositor
@@ -55,11 +56,28 @@ def render_pointcloud_raw(
     Returns:
         np.ndarray: the rendered pointcloud image.
     """
+    pointcloud = pointcloud.clone().detach().cpu()
+    # If there are extra channels (e.g. (N,6)), assume the first three are the coordinates.
+    if pointcloud.shape[-1] > 3:
+        pointcloud = pointcloud[:, :3]
     pointcloud = pointcloud.reshape(-1, 3)
 
-    colors = torch.zeros_like(pointcloud)
-    colors[:, 2] = 1.0
+    # Extract the height (z-coordinate) and normalize to [0, 1]
+    y = pointcloud[:, 1]
+    y_min, y_max = y.min(), y.max()
+    if y_max - y_min > 0:
+        y_norm = (y - y_min) / (y_max - y_min)
+    else:
+        # If all z values are the same, assign a constant value.
+        y_norm = torch.zeros_like(y)
 
+    colormap = cm.get_cmap("viridis")
+    colors_np = colormap(y_norm.cpu().numpy())[:, :3]  # shape (N, 3)
+
+    # Convert colors back to a torch tensor and move to the appropriate device.
+    colors = torch.from_numpy(colors_np).to(pointcloud.device).type_as(pointcloud)
+
+    # Create a Pointclouds object with the computed colors.
     pc = Pointclouds(points=[pointcloud], features=[colors])
 
     return render_pointcloud(pc, *args, **kwargs)
