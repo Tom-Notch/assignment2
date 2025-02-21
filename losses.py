@@ -9,7 +9,7 @@ def voxel_loss(voxel_src: torch.Tensor, voxel_tgt: torch.Tensor):
     # voxel_src: b x h x w x d
     # voxel_tgt: b x h x w x d
     # implement some loss for binary voxel grids
-    loss = F.binary_cross_entropy_with_logits(voxel_src, voxel_tgt)
+    loss = F.binary_cross_entropy(voxel_src, voxel_tgt)
     return loss
 
 

@@ -4,6 +4,7 @@ import os
 import time
 
 import torch
+from matplotlib import pyplot as plt
 from pytorch3d.ops import sample_points_from_meshes
 from pytorch3d.structures import Meshes
 from pytorch3d.utils import ico_sphere
@@ -11,6 +12,9 @@ from pytorch3d.utils import ico_sphere
 import dataset_location
 import losses
 from r2n2_custom import R2N2
+from render import render_mesh
+from render import render_pointcloud_raw
+from render import render_voxel_raw
 
 
 def get_args_parser():
@@ -65,6 +69,35 @@ def fit_mesh(mesh_src, mesh_tgt, args):
 
     mesh_src.offset_verts_(deform_vertices_src)
 
+    fig, ax = plt.subplots(1, 2, figsize=(12, 6))
+
+    ax[0].imshow(render_mesh(mesh_tgt))
+    ax[0].axis("off")
+    ax[0].text(
+        0.5,
+        -0.08,
+        "Ground Truth Mesh",
+        transform=ax[0].transAxes,
+        horizontalalignment="center",
+        verticalalignment="bottom",
+        fontsize=14,
+    )
+
+    ax[1].imshow(render_mesh(mesh_src))
+    ax[1].axis("off")
+    ax[1].text(
+        0.5,
+        -0.08,
+        "Fit Mesh",
+        transform=ax[1].transAxes,
+        horizontalalignment="center",
+        verticalalignment="bottom",
+        fontsize=14,
+    )
+
+    plt.savefig("vis/fit_mesh.png")
+    plt.close(fig)
+
     print("Done!")
 
 
@@ -91,6 +124,35 @@ def fit_pointcloud(pointclouds_src, pointclouds_tgt, args):
             % (step, args.max_iter, total_time, iter_time, loss_vis)
         )
 
+    fig, ax = plt.subplots(1, 2, figsize=(12, 6))
+
+    ax[0].imshow(render_pointcloud_raw(pointclouds_tgt))
+    ax[0].axis("off")
+    ax[0].text(
+        0.5,
+        -0.08,
+        "Ground Truth Point Cloud",
+        transform=ax[0].transAxes,
+        horizontalalignment="center",
+        verticalalignment="bottom",
+        fontsize=14,
+    )
+
+    ax[1].imshow(render_pointcloud_raw(pointclouds_src))
+    ax[1].axis("off")
+    ax[1].text(
+        0.5,
+        -0.08,
+        "Fit Point Cloud",
+        transform=ax[1].transAxes,
+        horizontalalignment="center",
+        verticalalignment="bottom",
+        fontsize=14,
+    )
+
+    plt.savefig("vis/fit_pointcloud.png")
+    plt.close(fig)
+
     print("Done!")
 
 
@@ -101,7 +163,9 @@ def fit_voxel(voxels_src, voxels_tgt, args):
     for step in range(start_iter, args.max_iter):
         iter_start_time = time.time()
 
-        loss = losses.voxel_loss(voxels_src, voxels_tgt)
+        # Clamp voxels_src for the loss computation without modifying the original tensor
+        voxels_src_clamped = voxels_src.clamp(0, 1)
+        loss = losses.voxel_loss(voxels_src_clamped, voxels_tgt)
 
         optimizer.zero_grad()
         loss.backward()
@@ -116,6 +180,35 @@ def fit_voxel(voxels_src, voxels_tgt, args):
             "[%4d/%4d]; time: %.0f (%.2f); loss: %.3f"
             % (step, args.max_iter, total_time, iter_time, loss_vis)
         )
+
+    fig, ax = plt.subplots(1, 2, figsize=(12, 6))
+
+    ax[0].imshow(render_voxel_raw(voxels_tgt))
+    ax[0].axis("off")
+    ax[0].text(
+        0.5,
+        -0.08,
+        "Ground Truth Voxel",
+        transform=ax[0].transAxes,
+        horizontalalignment="center",
+        verticalalignment="bottom",
+        fontsize=14,
+    )
+
+    ax[1].imshow(render_voxel_raw(voxels_src))
+    ax[1].axis("off")
+    ax[1].text(
+        0.5,
+        -0.08,
+        "Fit Voxel",
+        transform=ax[1].transAxes,
+        horizontalalignment="center",
+        verticalalignment="bottom",
+        fontsize=14,
+    )
+
+    plt.savefig("vis/fit_voxel.png")
+    plt.close(fig)
 
     print("Done!")
 

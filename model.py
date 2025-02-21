@@ -23,14 +23,39 @@ class VoxelBlock(nn.Sequential):
                             kernel_size=4,
                             stride=2,
                             padding=1,
-                            bias=False,
+                            # bias=False,
                         ),
                     ),
-                    ("batchnorm", nn.BatchNorm3d(out_channels)),
+                    # ("batchnorm", nn.BatchNorm3d(out_channels)),
                     ("activation", nn.ReLU(inplace=True)),
                 ]
             )
         )
+
+
+class UpsampleBlock(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int):
+        super().__init__()
+        self.upsample = nn.Upsample(
+            scale_factor=2, mode="trilinear", align_corners=False
+        )
+        self.conv = nn.Sequential(
+            nn.Conv3d(
+                in_channels,
+                out_channels,
+                kernel_size=3,
+                stride=1,
+                padding=1,
+                bias=False,
+            ),
+            nn.BatchNorm3d(out_channels),
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, x):
+        x = self.upsample(x)
+        x = self.conv(x)
+        return x
 
 
 class VoxelDecoder(nn.Module):
@@ -44,7 +69,7 @@ class VoxelDecoder(nn.Module):
                 [
                     ("vox1", VoxelBlock(256, 128)),
                     ("vox2", VoxelBlock(128, 64)),
-                    ("vox3", VoxelBlock(64, 32)),
+                    ("vox3", UpsampleBlock(64, 32)),
                     ("vox4", VoxelBlock(32, 1)),
                     (
                         "binarize",
