@@ -156,6 +156,8 @@ class SingleViewto3D(nn.Module):
             # Output: b x args.n_points x 3
             self.n_point = args.n_points
             self.decoder = PointCloudDecoder(n_points=args.n_points, latent_dim=512)
+        elif args.type == "parametric":
+            pass
         elif args.type == "mesh":
             # Input: b x 512
             # Output: b x mesh_pred.verts_packed().shape[0] x 3
@@ -199,3 +201,6 @@ class SingleViewto3D(nn.Module):
                 deform_vertices_pred.reshape([-1, 3])
             )
             return mesh_pred
+
+        elif args.type == "parametric":
+            pass

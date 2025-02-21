@@ -21,7 +21,10 @@ def get_args_parser():
     parser.add_argument("--batch_size", default=32, type=int)
     parser.add_argument("--num_workers", default=4, type=int)
     parser.add_argument(
-        "--type", default="vox", choices=["vox", "point", "mesh"], type=str
+        "--type",
+        default="vox",
+        choices=["vox", "point", "mesh", "parametric"],
+        type=str,
     )
     parser.add_argument("--n_points", default=1000, type=int)
     parser.add_argument("--w_chamfer", default=1.0, type=float)
@@ -44,6 +47,8 @@ def preprocess(feed_dict, args):
         ground_truth_3d = pointclouds_tgt
     elif args.type == "mesh":
         ground_truth_3d = feed_dict["mesh"]
+    elif args.type == "parametric":
+        pass
     if args.load_feat:
         feats = torch.stack(feed_dict["feats"])
         return feats.to(args.device), ground_truth_3d.to(args.device)
@@ -54,7 +59,7 @@ def preprocess(feed_dict, args):
 def calculate_loss(predictions, ground_truth, args):
     if args.type == "vox":
         loss = losses.voxel_loss(predictions, ground_truth)
-    elif args.type == "point":
+    elif args.type == "point" or args.type == "parametric":
         loss = losses.chamfer_loss(predictions, ground_truth)
     elif args.type == "mesh":
         sample_trg = sample_points_from_meshes(ground_truth, args.n_points)
